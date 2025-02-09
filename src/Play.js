@@ -101,9 +101,9 @@ export const Play = class extends Phaser.Scene {
         super('Play')
     }
 
-    create() {
+    create(ax) {
         this.graphics = new Graphics(this)
-        this.synth = new Synth(this.sound.context)
+        this.synth = new Synth(ax)
         this.gameLogic = new Game(this.graphics, this.synth)
 
         this.input.on('pointerdown', e => this.gameLogic.mouseDown(e.position))

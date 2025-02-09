@@ -3,6 +3,7 @@
 // Time Spent:
 
 import { Load } from './Load.js'
+import { Start } from './Start.js'
 import { Play } from './Play.js'
 
 new Phaser.Game({
@@ -12,5 +13,8 @@ new Phaser.Game({
     scale: {
         autoCenter: Phaser.Scale.CENTER_BOTH,
     },
-    scene: [Load, Play],
+    audio: {
+        noAudio: true,
+    },
+    scene: [Load, Start, Play],
 })
