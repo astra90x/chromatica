@@ -2,7 +2,8 @@
 // Game: Chromatica
 // Time Spent:
 
-import Play from './Play.js'
+import { Load } from './Load.js'
+import { Play } from './Play.js'
 
 new Phaser.Game({
     type: Phaser.AUTO,
@@ -11,5 +12,5 @@ new Phaser.Game({
     scale: {
         autoCenter: Phaser.Scale.CENTER_BOTH,
     },
-    scene: [Play],
+    scene: [Load, Play],
 })

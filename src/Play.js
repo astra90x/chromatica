@@ -1,6 +1,6 @@
 import { TerrainGen } from './core.js'
 
-const Play = class extends Phaser.Scene {
+export const Play = class extends Phaser.Scene {
     constructor() {
         super('Play')
     }
@@ -23,5 +23,3 @@ const Play = class extends Phaser.Scene {
     update() {
     }
 }
-
-export default Play
