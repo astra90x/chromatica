@@ -1,17 +1,16 @@
 import { Random, Synth, MusicGen, ClickGen, PathGen, TerrainGen } from './core.js'
 
-const BEAT_PER_SEC = 45
-const NOTE_PER_MIN = BEAT_PER_SEC * 4
-const NOTE_PER_SEC = NOTE_PER_MIN / 60
-
 const Game = class {
     constructor(cx, synth) {
         this.cx = cx
         this.synth = synth
         this.config = {
             volume: 0.5,
-            audioSync: 1,
-            notesPerMinute: 180,
+            tutorial: true,
+            audioSync: -0.25,
+            advanced: false,
+            cheat: true,
+            notesPerSec: 3,
         }
 
         this.random = new Random()
@@ -28,10 +27,12 @@ const Game = class {
         this.at = 0
 
         this.runner = { x: 0, y: 0, vy: 0 }
-        this.mouse = false
-        this.keyboard = false
+        this.input = new Map()
 
-        this.pullTutorial()
+        this.configMenu = false
+        this.configSelected = 0
+
+        if (this.config.tutorial) this.pullTutorial()
         this.pull()
     }
 
@@ -50,7 +51,7 @@ const Game = class {
         })[effect] ?? []
 
         let time = this.synth.ax.currentTime
-        let duration = 1 / NOTE_PER_SEC
+        let duration = 1 / this.config.notesPerSec
         for (let note of notes) {
             this.synth.scheduleNote({ time, duration, frequency: 440 * 2 ** ((note - 9) / 12), gain: 0.5 })
         }
@@ -111,7 +112,7 @@ const Game = class {
         })[type]
 
         if (tutorialText != null) {
-            this.cx.fillStyle(0xffffff)
+            this.cx.fillStyle(0x000000)
             this.cx.fillText(x + width / 2 - width * 10, y, { width: width * 20, height: height / 2 }, tutorialText)
             return
         }
@@ -170,10 +171,10 @@ const Game = class {
             }
         }
 
-        if (this.keyboardCheat) {
+        if (this.config.cheat && this.input.has('KeyC')) {
+            this.cx.lineStyle(2, 0x444444)
             for (let i = 0, x = -this.at; i < this.path.length; x += this.path[i++].sheetSize) {
                 for (let { start, end, type } of this.path[i].path) {
-                    this.cx.lineStyle(2, type === 'jump' ? 0x00ff00 : type === 'fall' ? 0xff0000 : 0x4444ff)
                     let startX = (x + start.x) * tileSize + 300 + tileSize * 0.5
                     let startY = start.y * tileSize + 650 + tileSize * 0.5
                     let endX = (x + end.x) * tileSize + 300 + tileSize * 0.5
@@ -190,12 +191,100 @@ const Game = class {
         this.renderEntity((-this.at + this.runner.x) * tileSize + 300, this.runner.y * tileSize + 650, tileSize, tileSize, 'runner')
     }
 
+    renderInterface() {
+        if (!this.configMenu) return
+
+        let config = {
+            volume: { name: 'Volume', min: 0, max: 1, default: 0.5, unit: [100, '%'] },
+            tutorial: { name: 'Tutorial', toggle: true, default: true },
+            audioSync: { name: 'Audio Sync Offset', min: -0.8, max: 0.2, default: -0.3, unit: [1000, ' ms'] },
+            advanced: { name: 'Developer Options', toggle: true, default: false },
+            cheat: { name: 'C to Cheat', toggle: true, default: true, hidden: !this.config.advanced },
+            notesPerSec: { name: 'Music Speed', min: 0.1, max: 10, default: 3, unit: [60, ' BPM'], hidden: !this.config.advanced },
+        }
+
+        let configLength = Object.values(config).filter(x => !x.hidden).length + 1
+        this.configSelected = ((
+            this.configSelected - (this.input.get('ArrowUp') < 0) + (this.input.get('ArrowDown') < 0)
+        ) + configLength) % configLength
+
+        this.cx.fillStyle(0x111111, 0.4)
+        this.cx.fillRect(0, 0, 1600, 900)
+
+        this.cx.fillStyle(0xeeeeee)
+        this.cx.fillText(600, 220, { width: 400, height: 48 }, 'Options')
+
+        let configIndex = 0
+        for (let [key, options] of Object.entries(config)) {
+            if (options.hidden) continue
+
+            let value = this.config[key]
+            let selected = this.configSelected === configIndex
+
+            let canLeft = true
+            let canRight = true
+            let displayValue
+            if (options.toggle) {
+                if (selected) {
+                    if ((value && this.input.get('ArrowLeft') < 0) || (!value && this.input.get('ArrowRight') < 0) || this.input.get('Space') < 0 || this.input.get('Enter') < 0) value = !value
+                }
+                displayValue = value ? 'Enabled' : 'Disabled'
+                canLeft = value
+                canRight = !value
+            } else {
+                let [scale, unit] = options.unit
+                if (selected) {
+                    value += (-(this.input.get('ArrowLeft') <= 0) + (this.input.get('ArrowRight') <= 0)) / scale
+                }
+                if (value <= options.min) {
+                    canLeft = false
+                    value = options.min
+                } else if (value >= options.max) {
+                    canRight = false
+                    value = options.max
+                }
+                displayValue = `${Math.round(value * scale)}${unit}`
+            }
+
+            this.cx.fillStyle(selected ? 0xffffff : 0xd8d8d8)
+            this.cx.fillText(400, 300 + configIndex * 50, { width: 400, height: 36 }, options.name)
+            this.cx.fillText(900, 300 + configIndex * 50, { width: 200, height: 36 }, displayValue)
+            if (canLeft) this.cx.fillTriangle(
+                900, 300 + configIndex * 50 + 18 - 9,
+                900 - 9, 300 + configIndex * 50 + 18,
+                900, 300 + configIndex * 50 + 18 + 9,
+            )
+            if (canRight) this.cx.fillTriangle(
+                1100, 300 + configIndex * 50 + 18 - 9,
+                1100 + 9, 300 + configIndex * 50 + 18,
+                1100, 300 + configIndex * 50 + 18 + 9,
+            )
+
+            this.config[key] = value
+            configIndex++
+        }
+
+        let selected = this.configSelected === configLength - 1
+        this.cx.fillStyle(selected ? 0xffffff : 0xd8d8d8)
+        this.cx.fillText(600, 300 + configIndex * 50 + 20, { width: 400, height: 36 }, 'Reset All Options')
+        if (selected) {
+            if (this.input.get('Space') < 0 || this.input.get('Enter') < 0) {
+                this.configSelected = 0
+                for (let [key, options] of Object.entries(config)) {
+                    this.config[key] = options.default
+                }
+            }
+        }
+    }
+
     update(delta) {
+        if (this.configMenu) return
+
         let timeslices = Math.max(2, Math.min(20, delta * 500)) // 500 TPS physics because integrals and quadratics are hard
         let timesliceDelta = delta / timeslices
 
         let boundLeft = this.runner.x
-        let boundRight = boundLeft + 1 + delta * NOTE_PER_SEC
+        let boundRight = boundLeft + 1 + delta * this.config.notesPerSec
         let relevantTerrain = []
         for (let i = 0, x = 0; i < this.terrain.length; x += this.terrain[i++].sheetSize) {
             for (let e of this.terrain[i].terrain) {
@@ -204,10 +293,10 @@ const Game = class {
         }
 
         for (let i = 0; i < timeslices; i++) {
-            this.at += timesliceDelta * NOTE_PER_SEC
-            this.runner.x += (1 + (this.at - this.runner.x) * 0.05) * timesliceDelta * NOTE_PER_SEC
-            this.runner.y += (this.runner.vy + timesliceDelta * NOTE_PER_SEC) * timesliceDelta * NOTE_PER_SEC
-            this.runner.vy += timesliceDelta * NOTE_PER_SEC * 2
+            this.at += timesliceDelta * this.config.notesPerSec
+            this.runner.x += (1 + (this.at - this.runner.x) * 0.05) * timesliceDelta * this.config.notesPerSec // FIXME lerp 0.05
+            this.runner.y += (this.runner.vy + timesliceDelta * this.config.notesPerSec) * timesliceDelta * this.config.notesPerSec
+            this.runner.vy += timesliceDelta * this.config.notesPerSec * 2
             let contactedTerrain = relevantTerrain.filter(e => this.runner.x < e.x + e.width && this.runner.x + 1 > e.x && this.runner.y < e.y + e.height && this.runner.y + 1 > e.y)
             for (let e of contactedTerrain) {
                 if (e.type !== 'floor') continue
@@ -217,8 +306,8 @@ const Game = class {
                 let pushDown = e.y + e.height - this.runner.y
                 if (Math.min(pushUp - 0.25, pushDown) <= Math.min(pushLeft, pushRight)) {
                     if (pushUp - 0.25 <= pushDown) {
-                        let jumping = this.mouse || this.keyboard ? true : false
-                        if (this.keyboardCheat) {
+                        let jumping = this.input.has('Mouse') || this.input.has('Space')
+                        if (this.config.cheat && this.input.has('KeyC')) {
                             for (let i = 0, x = 0; i < this.path.length; x += this.path[i++].sheetSize) {
                                 for (let e of this.path[i].path) {
                                     if (e.type === 'jump' && x + e.start.x < this.runner.x && x + (e.start.x + e.end.x) / 2 > this.runner.x) jumping = true
@@ -248,43 +337,51 @@ const Game = class {
             for (let note of this.notes[i].notes) {
                 if (this.playedNotes.has(note)) continue
 
-                let playIn = (x + note.time - 1) / NOTE_PER_SEC
-                if (playIn > 0.4) continue
+                let playIn = (x + note.time) / this.config.notesPerSec + this.config.audioSync
+                if (playIn > 0.5) continue
                 this.playedNotes.add(note)
-                if (playIn < 0.08) continue
+                if (playIn < 0.05) continue
 
                 let time = this.synth.ax.currentTime + playIn
-                let duration = note.duration / NOTE_PER_SEC
+                let duration = note.duration / this.config.notesPerSec
                 this.synth.scheduleNote({ ...note, time, duration })
             }
         }
     }
 
     render(_time, delta) {
+        if (this.input.get('Escape') < 0) this.configMenu = !this.configMenu
+
         this.synth.setVolume(this.config.volume)
         this.update(delta)
         this.pull()
         this.playMusic()
         this.cx.startFrame()
         this.renderWorld()
+        this.renderInterface()
         this.cx.endFrame()
+
+        for (let [id, time] of this.input) {
+            if (time < 0) time = 0
+            time += delta
+            if (time > 0.05) time = 0
+            this.input.set(id, time)
+        }
     }
     mouseDown() {
-        this.mouse = true
+        this.input.set('Mouse', -1)
     }
     mouseMove() {
 
     }
     mouseUp() {
-        this.mouse = false
+        this.input.delete('Mouse')
     }
     keyDown(key) {
-        if (key === ' ') this.keyboard = true
-        if (key === 'c') this.keyboardCheat = true
+        this.input.set(key, -1)
     }
     keyUp(key) {
-        if (key === ' ') this.keyboard = false
-        if (key === 'c') this.keyboardCheat = false
+        this.input.delete(key)
     }
 }
 
@@ -374,8 +471,8 @@ export const Play = class extends Phaser.Scene {
         this.input.on('pointerdown', e => this.gameLogic.mouseDown(e.position))
         this.input.on('pointermove', e => this.gameLogic.mouseMove(e.position))
         this.input.on('pointerup', e => this.gameLogic.mouseUp(e.position))
-        this.input.keyboard.on('keydown', e => !e.repeat && this.gameLogic.keyDown(e.key))
-        this.input.keyboard.on('keyup', e => this.gameLogic.keyUp(e.key))
+        this.input.keyboard.on('keydown', e => !e.repeat && this.gameLogic.keyDown(e.code))
+        this.input.keyboard.on('keyup', e => this.gameLogic.keyUp(e.code))
     }
 
     update(time, delta) {
