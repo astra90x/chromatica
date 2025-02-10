@@ -1,6 +1,6 @@
 import { Random, Synth, MusicGen, ClickGen, PathGen, TerrainGen } from './core.js'
 
-const BEAT_PER_SEC = 93.75
+const BEAT_PER_SEC = 45
 const NOTE_PER_MIN = BEAT_PER_SEC * 4
 const NOTE_PER_SEC = NOTE_PER_MIN / 60
 
@@ -16,6 +16,7 @@ const Game = class {
         this.pathGen = new PathGen(this.random)
         this.terrainGen = new TerrainGen(this.random)
 
+        this.playedNotes = new WeakSet()
         this.notes = []
         this.clicks = []
         this.path = []
@@ -25,8 +26,6 @@ const Game = class {
         this.runner = { x: 0, y: 0, vy: 0 }
         this.mouse = false
         this.keyboard = false
-
-        this.musicEndsAt = -Infinity
 
         this.pullTutorial()
         this.pull()
@@ -41,15 +40,41 @@ const Game = class {
         this.musicEndsAt = musicStartsAt + music[music.length - 1].time + music[music.length - 1].duration
     }
 
+    scheduleEffect(effect) {
+        let notes = ({
+            black: [0, 3, 6],
+        })[effect] ?? []
+
+        let time = this.synth.ax.currentTime
+        let duration = 1 / NOTE_PER_SEC
+        for (let note of notes) {
+            this.synth.scheduleNote({ time, duration, frequency: 440 * 2 ** ((note - 9) / 12), gain: 0.5 })
+        }
+    }
+
     pullTutorial() {
         let notes = []
         let terrain = [
-            { x: 0, y: 1, width: 19, height: 1, type: 'floor' },
+            { x: 0, y: 1, width: 7, height: 1, type: 'floor' },
+            { x: 10, y: 1, width: 13, height: 1, type: 'floor' },
+            { x: 14, y: 0, width: 1, height: 1, type: 'black' },
+            { x: 20, y: -1, width: 1, height: 1, type: 'white' },
+
+            { x: 8, y: -2, width: 1, height: 1, type: 'tutorialJump' },
+            { x: 14, y: -4, width: 1, height: 1, type: 'tutorialBlack' },
+            { x: 20, y: -2, width: 1, height: 1, type: 'tutorialWhite' },
         ]
-        this.notes.push({ sheetSize: 20, notes })
-        this.clicks.push({ sheetSize: 20, clicks: [] })
-        this.path.push({ sheetSize: 20, path: [] })
-        this.terrain.push({ sheetSize: 20, terrain })
+        let path = [
+            { start: { x: 0, y: 0 }, end: { x: 6, y: 0 }, type: 'straight' },
+            { start: { x: 6, y: 0 }, end: { x: 10, y: 0 }, type: 'jump' },
+            { start: { x: 10, y: 0 }, end: { x: 12, y: 0 }, type: 'straight' },
+            { start: { x: 12, y: 0 }, end: { x: 16, y: 0 }, type: 'jump' },
+            { start: { x: 16, y: 0 }, end: { x: 23, y: 0 }, type: 'straight' },
+        ]
+        this.notes.push({ sheetSize: 23, notes })
+        this.clicks.push({ sheetSize: 23, clicks: [] })
+        this.path.push({ sheetSize: 23, path })
+        this.terrain.push({ sheetSize: 23, terrain })
     }
 
     pull() {
@@ -72,6 +97,18 @@ const Game = class {
     }
 
     renderEntity(x, y, width, height, type) {
+        let tutorialText = ({
+            'tutorialJump': 'Tap or press space to\njump over this gap',
+            'tutorialBlack': 'Avoid black dissonance keys',
+            'tutorialWhite': 'Hit the white melody keys',
+        })[type]
+
+        if (tutorialText != null) {
+            this.cx.fillStyle(0xffffff)
+            this.cx.fillText(x + width / 2 - width * 10, y, { width: width * 20, height: height / 2 }, tutorialText)
+            return
+        }
+
         this.cx.fillStyle(({
             'black': 0x333333,
             'white': 0xffffff,
@@ -90,9 +127,10 @@ const Game = class {
 
     renderWorld() {
         let noteSize = 5
+        this.cx.fillStyle(0x333333)
+        this.cx.fillRect(300, 200 - noteSize * 20, 1, noteSize * 40)
         for (let i = 0, x = -this.at; i < this.notes.length; x += this.notes[i++].sheetSize) {
             for (let note of this.notes[i].notes) {
-                this.cx.fillStyle(0x333333)
                 this.cx.fillRect(300 + (x + note.time) * noteSize, 200 - note.keyPosition * noteSize, note.duration * noteSize, noteSize)
             }
         }
@@ -139,8 +177,8 @@ const Game = class {
 
         for (let i = 0; i < timeslices; i++) {
             this.at += timesliceDelta * NOTE_PER_SEC
-            this.runner.x += timesliceDelta * NOTE_PER_SEC
-            this.runner.y += (this.runner.vy + timesliceDelta * NOTE_PER_SEC * 2) * timesliceDelta * NOTE_PER_SEC
+            this.runner.x += (1 + (this.at - this.runner.x) * 0.05) * timesliceDelta * NOTE_PER_SEC
+            this.runner.y += (this.runner.vy + timesliceDelta * NOTE_PER_SEC) * timesliceDelta * NOTE_PER_SEC
             this.runner.vy += timesliceDelta * NOTE_PER_SEC * 2
             let contactedTerrain = relevantTerrain.filter(e => this.runner.x < e.x + e.width && this.runner.x + 1 > e.x && this.runner.y < e.y + e.height && this.runner.y + 1 > e.y)
             for (let e of contactedTerrain) {
@@ -174,14 +212,30 @@ const Game = class {
                     }
                 }
             }
-            this.at = this.runner.x
         }
+    }
 
-        this.pull()
+    playMusic() {
+        for (let i = 0, x = -this.at; i < this.notes.length; x += this.notes[i++].sheetSize) {
+            for (let note of this.notes[i].notes) {
+                if (this.playedNotes.has(note)) continue
+
+                let playIn = (x + note.time - 1) / NOTE_PER_SEC
+                if (playIn > 0.4) continue
+                this.playedNotes.add(note)
+                if (playIn < 0.08) continue
+
+                let time = this.synth.ax.currentTime + playIn
+                let duration = note.duration / NOTE_PER_SEC
+                this.synth.scheduleNote({ ...note, time, duration })
+            }
+        }
     }
 
     render(_time, delta) {
         this.update(delta)
+        this.pull()
+        this.playMusic()
         this.cx.startFrame()
         this.renderWorld()
         this.cx.endFrame()

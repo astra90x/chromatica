@@ -180,7 +180,7 @@ export const MusicGen = class {
             let key = note.key - octave * 7
             let keyPosition = octave * 12 + scale[key]
             let frequency = 440 * 2 ** ((keyPosition - 9) / 12)
-            return { keyPosition, frequency, duration: note.duration, gain: 0.5 * (note.gain || 1), time: (note.time + 0.05) }
+            return { keyPosition, frequency, duration: note.duration, gain: 0.5 * (note.gain || 1), time: note.time }
         })
     }
     pullSheet() {
@@ -198,8 +198,8 @@ export const ClickGen = class {
     }
     pullSheet({ sheetSize }) {
         let clicks = []
-        let x = 2
-        while (x <= sheetSize - 2) {
+        let x = 1
+        while (x <= sheetSize - 3) {
             clicks.push(x)
             x += this.rand.chance(0, 0, 0, 3, 5, 8, 10, 10, 8, 5, 2, 2, 2, 1, 1)
         }
@@ -233,7 +233,7 @@ export const PathGen = class {
         for (let i = 0; i <= clicks.length; i++) {
             let startX = x
             let endX = clicks[i] ?? sheetSize
-            while (i + 1 < clicks.length && clicks[i + 1] - endX < 3) i++
+            while (i + 1 < clicks.length && clicks[i + 1] - endX <= (y < -9 ? 3 : 2)) i++
 
             if (i > 0) {
                 let length = Math.min(endX - startX - 1, this.rand.chance(0, 0, y < -6 ? 0 : 5, 10, 20, y < 0 ? 2 : 0, y < -6 ? 1 : 0))
@@ -242,7 +242,7 @@ export const PathGen = class {
                 startX = midX
             }
 
-            let fallSize = 1 + Math.floor(Math.random() * Math.max(1, Math.min(3, 2.25 - y * 0.125)))
+            let fallSize = 1 + Math.floor(Math.random() * Math.max(1, Math.min(5, 2.25 - y * 0.125)))
             if (endX - startX > 2 + fallSize) {
                 let fallDelay = Math.floor(Math.random() * ((endX - startX) - (2 + fallSize)))
                 let fallStart = startX + 1 + fallDelay
@@ -264,7 +264,9 @@ export const PathGen = class {
     pullSheet({ sheetSize, clicks }) {
         while (true) {
             let { y, path } = this.pullCandidate(0, { sheetSize, clicks })
-            if (y === 0) return { sheetSize, path } // FIXME this is very inefficient
+            if (y !== 0) continue
+            if (!path.every(p => p.start.y + 1 >= -14 && p.start.y <= 7)) continue
+            return { sheetSize, path } // FIXME this is very inefficient
         }
     }
 }
