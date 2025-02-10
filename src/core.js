@@ -1,10 +1,11 @@
-const SHEET_WIDTH = 256
-
 export const Random = class {
-    constructor() {
+    constructor(seed = null) {
+        this.state = seed
     }
     get() {
-        return Math.random()
+        if (this.state == null) return Math.random()
+        this.state = Math.imul(this.state, 48271)
+        return this.state / 0x100000000
     }
     int(min, max, inclusive = false) {
         return Math.floor(min + (max - min + inclusive) * this.get())
@@ -61,10 +62,11 @@ export const Synth = class {
     }
 
     setVolume(volume) {
+        let rawVolume = volume * volume
         if (this.ax.currentTime === 0) {
-            this.out.gain.setValueAtTime(volume, 0)
+            this.out.gain.setValueAtTime(rawVolume, 0)
         } else {
-            this.out.gain.linearRampToValueAtTime(volume, this.ax.currentTime + 0.01)
+            this.out.gain.linearRampToValueAtTime(rawVolume, this.ax.currentTime + 0.01)
         }
     }
 
@@ -125,118 +127,94 @@ export const Synth = class {
     }
 }
 
-let notes = () => {
-    let rand = new Random()
-
-    let notes = []
-
-    let bassKeys = []
-    for (let i = 0; i < 4; i++) {
-        let options = [-1, 0, 2, 3, 4].filter(x => x !== bassKeys[i - 1])
-        bassKeys.push(rand.choose(options))
+export const MusicGen = class {
+    constructor(rand) {
+        this.rand = rand
     }
-    bassKeys = [...bassKeys, ...bassKeys, ...bassKeys, ...bassKeys]
+    pullFragment() {
+        let notes = []
 
-    let melodyKeys = []
-    for (let i = 0; i < 64; i++) {
-        let options = [
-            { weight: 0.05, key: rand.int(-1, 7, true) }, // random key
-            { weight: i === 0 ? 10 : i % 4 === 0 ? 0.5 : 0.1, key: bassKeys[Math.floor(i / 4)] }, // reuse bass key
-            { weight: melodyKeys[i - 1 - 4] === melodyKeys[i - 1] ? 2 : 0.5, key: melodyKeys[i - 4] }, // repeat melody pattern
-            { weight: melodyKeys[i - 1 - 16] === melodyKeys[i - 1] ? 10 : 0.5, key: melodyKeys[i - 4] }, // repeat melody
-            { weight: 0.3, key: melodyKeys[i - 1] + rand.int(-3, 2, true) + rand.int(0, 1, true) }, // nearby jump
-            { weight: 0.6, key: melodyKeys[i - 1] + rand.choose(-1, 1) }, // step
-            { weight: [1, -1].includes(melodyKeys[i - 1] - melodyKeys[i - 2]) ? i >= 32 && i < 48 ? 2.5 : 0.2 : 0, key: melodyKeys[i - 1] * 2 - melodyKeys[i - 2] }, // run
-        ].filter(x => typeof x.key === 'number' && !Number.isNaN(x.key))
-        for (let option of options) if (option.key === melodyKeys[i - 1]) option.weight *= 0.1
-        if (i >= 8) {
-            let seen = new Set(melodyKeys.slice(-20))
-            if (seen.size < 6) {
-                let factor = 1 + (6 - seen.size) * 0.75
-                for (let option of options) if (!seen.has(option.key)) option.weight *= factor
+        let bassKeys = []
+        for (let i = 0; i < 4; i++) {
+            let options = [-1, 0, 2, 3, 4].filter(x => x !== bassKeys[i - 1])
+            bassKeys.push(this.rand.choose(options))
+        }
+        bassKeys = [...bassKeys, ...bassKeys, ...bassKeys, ...bassKeys]
+
+        let melodyKeys = []
+        for (let i = 0; i < 64; i++) {
+            let options = [
+                { weight: 0.05, key: this.rand.int(-1, 7, true) }, // random key
+                { weight: i === 0 ? 10 : i % 4 === 0 ? 0.5 : 0.1, key: bassKeys[Math.floor(i / 4)] }, // reuse bass key
+                { weight: melodyKeys[i - 1 - 4] === melodyKeys[i - 1] ? 2 : 0.5, key: melodyKeys[i - 4] }, // repeat melody pattern
+                { weight: melodyKeys[i - 1 - 16] === melodyKeys[i - 1] ? 10 : 0.5, key: melodyKeys[i - 4] }, // repeat melody
+                { weight: 0.3, key: melodyKeys[i - 1] + this.rand.int(-3, 2, true) + this.rand.int(0, 1, true) }, // nearby jump
+                { weight: 0.6, key: melodyKeys[i - 1] + this.rand.choose(-1, 1) }, // step
+                { weight: [1, -1].includes(melodyKeys[i - 1] - melodyKeys[i - 2]) ? i >= 32 && i < 48 ? 2.5 : 0.2 : 0, key: melodyKeys[i - 1] * 2 - melodyKeys[i - 2] }, // run
+            ].filter(x => typeof x.key === 'number' && !Number.isNaN(x.key))
+            for (let option of options) if (option.key === melodyKeys[i - 1]) option.weight *= 0.1
+            for (let option of options) option.weight *= option.key >= -1 && options.key <= 7 ? 1 : option.key >= -3 && options.key <= 9 ? 0.6 : 0.1
+            if (i >= 8) {
+                let seen = new Set(melodyKeys.slice(-20))
+                if (seen.size < 6) {
+                    let factor = 1 + (6 - seen.size) * 0.75
+                    for (let option of options) if (!seen.has(option.key)) option.weight *= factor
+                }
             }
+
+            melodyKeys.push(options[this.rand.chance(options.map(x => x.weight))].key)
         }
 
-        melodyKeys.push(options[rand.chance(options.map(x => x.weight))].key)
+        notes.push(...bassKeys.flatMap((key, i) => [
+            { key: key - 7, time: i * 4, duration: 4, gain: 0.7 },
+            { key: key + [2, 2, null, -2, 2, 2][key + 1], time: i * 4, duration: 4, gain: 0.8 },
+            { key: key, time: i * 4, duration: 4, gain: 0.6 },
+        ]))
+        notes.push(...melodyKeys.flatMap((key, i) => [
+            { key: key, time: i, duration: 1 },
+        ]))
+
+        let scale = [0, 2, 4, 5, 7, 9, 11]
+        return notes.map(note => {
+            let octave = Math.floor(note.key / 7)
+            let key = note.key - octave * 7
+            let keyPosition = octave * 12 + scale[key]
+            let frequency = 440 * 2 ** ((keyPosition - 9) / 12)
+            return { keyPosition, frequency, duration: note.duration, gain: 0.5 * (note.gain || 1), time: (note.time + 0.05) }
+        })
     }
-
-    notes.push(...bassKeys.flatMap((key, i) => [
-        { key: key - 7, time: i * 8, duration: 8, gain: 0.7 },
-        { key: key + [2, 2, null, -2, 2, 2][key + 1], time: i * 8, duration: 8, gain: 0.8 },
-        { key: key, time: i * 8, duration: 8, gain: 0.6 },
-    ]))
-    notes.push(...melodyKeys.flatMap((key, i) => [
-        { key: key, time: i * 2, duration: 2 },
-    ]))
-
-    let scale = [0, 2, 4, 5, 7, 9, 11]
-    return notes.map(note => {
-        let octave = Math.floor(note.key / 7)
-        let key = note.key - octave * 7
-        let frequency = 440 * 2 ** ((octave * 12 + scale[key] - 9) / 12)
-        return { frequency, duration: note.duration * 0.16, gain: 0.5 * (note.gain || 1), time: 0.08 + note.time * 0.16 }
-    })
+    pullSheet() {
+        let notes = []
+        for (let offset = 0; offset < 256; offset += 64) {
+            notes.push(...this.pullFragment().map(note => ({ ...note, time: offset + note.time })))
+        }
+        return { sheetSize: 256, notes }
+    }
 }
-
-document.body.onclick = () => new Synth().play(notes())
 
 export const ClickGen = class {
     constructor(rand) {
         this.rand = rand
     }
-    pullSheet() {
-        let sheet = []
+    pullSheet({ sheetSize }) {
+        let clicks = []
         let x = 2
-        while (x <= SHEET_WIDTH - 2) {
-            sheet.push(x)
+        while (x <= sheetSize - 2) {
+            clicks.push(x)
             x += this.rand.chance(0, 0, 0, 3, 5, 8, 10, 10, 8, 5, 2, 2, 2, 1, 1)
         }
-        return sheet
+        return { sheetSize, clicks }
     }
 }
 
 export const PathGen = class {
     constructor(rand) {
         this.rand = rand
-        this.clickGen = new ClickGen(rand)
-        this.y = 0
     }
-    pullSheet() {
-        let clicks = this.clickGen.pullSheet()
 
-        let segments = []
-        let x = 0
-        for (let i = 0; i <= clicks.length; i++) {
-            let startX = x
-            let endX = clicks[i] ?? SHEET_WIDTH
-            while (i + 1 < clicks.length && clicks[i + 1] - endX < 3) i++
-
-            if (i > 0) {
-                let length = Math.min(endX - startX - 1, this.rand.chance(0, 0, 2, 4, 10, 2, 1))
-                let midX = startX + length
-                segments.push({ startX, endX: midX, type: 'jump' })
-                startX = midX
-            }
-
-            let fallSize = 1 + Math.floor(Math.random() * 3)
-            if (endX - startX > 2 + fallSize) {
-                let fallDelay = Math.floor(Math.random() * ((endX - startX) - (2 + fallSize)))
-                let fallStart = startX + 1 + fallDelay
-                let fallEnd = fallStart + fallSize
-
-                segments.push({ startX, endX: fallStart, type: 'straight' })
-                segments.push({ startX: fallStart, endX: fallEnd, type: 'fall' })
-                segments.push({ startX: fallEnd, endX, type: 'straight' })
-            } else {
-                segments.push({ startX, endX, type: 'straight' })
-            }
-
-            x = endX
-        }
-
+    pullCandidate(y, { sheetSize, clicks }) {
         let path = []
-        let y = this.y
-        for (let { startX, endX, type } of segments) {
+        let pushSegment = ({ startX, endX, type }) => {
             let dx = endX - startX
             let dy = type === 'jump' ? dx * dx - 4 * dx :
                 type === 'fall' ? dx * dx :
@@ -250,53 +228,85 @@ export const PathGen = class {
                 type,
             })
         }
-        this.y = y
 
-        return path
+        let x = 0
+        for (let i = 0; i <= clicks.length; i++) {
+            let startX = x
+            let endX = clicks[i] ?? sheetSize
+            while (i + 1 < clicks.length && clicks[i + 1] - endX < 3) i++
+
+            if (i > 0) {
+                let length = Math.min(endX - startX - 1, this.rand.chance(0, 0, y < -6 ? 0 : 5, 10, 20, y < 0 ? 2 : 0, y < -6 ? 1 : 0))
+                let midX = startX + length
+                pushSegment({ startX, endX: midX, type: 'jump' })
+                startX = midX
+            }
+
+            let fallSize = 1 + Math.floor(Math.random() * Math.max(1, Math.min(3, 2.25 - y * 0.125)))
+            if (endX - startX > 2 + fallSize) {
+                let fallDelay = Math.floor(Math.random() * ((endX - startX) - (2 + fallSize)))
+                let fallStart = startX + 1 + fallDelay
+                let fallEnd = fallStart + fallSize
+
+                pushSegment({ startX, endX: fallStart, type: 'straight' })
+                pushSegment({ startX: fallStart, endX: fallEnd, type: 'fall' })
+                pushSegment({ startX: fallEnd, endX, type: 'straight' })
+            } else {
+                pushSegment({ startX, endX, type: 'straight' })
+            }
+
+            x = endX
+        }
+
+        return { y, path }
+    }
+
+    pullSheet({ sheetSize, clicks }) {
+        while (true) {
+            let { y, path } = this.pullCandidate(0, { sheetSize, clicks })
+            if (y === 0) return { sheetSize, path } // FIXME this is very inefficient
+        }
     }
 }
 
 export const TerrainGen = class {
-    constructor(rand = new Random()) {
+    constructor(rand) {
         this.rand = rand
-        this.pathGen = new PathGen(rand)
     }
-    pullSheet() {
-        let path = this.pathGen.pullSheet()
-        return path.flatMap(p => {
-            if (p.type === 'jump') return [{
-                x: p.start.x,
-                y: p.start.y - 1,
+    pullSheet({ sheetSize, path }) {
+        let terrain = path.flatMap((p, i) => {
+            let last = path[i - 1]
+            if (p.type === 'jump') return [] /*{
+                x: p.start.x + 1,
+                y: p.start.y,
                 width: 1,
                 height: 1,
-                color: 0xff0000,
+                type: 'black',
             }, {
-                x: p.start.x,
+                x: p.start.x + 1,
                 y: Math.max(p.start.y, p.end.y),
                 width: p.end.x - p.start.x,
                 height: 1,
-                color: 0x440000,
-            }]
-            if (p.type === 'fall') return [{
-                x: p.start.x,
-                y: Math.max(p.start.y, p.end.y),
-                width: p.end.x - p.start.x,
-                height: 1,
-                color: 0x0000ff,
-            }]
+                type: 'black',
+            }]*/
+            if (p.type === 'fall') return []
+            // {
+            //     x: p.start.x,
+            //     y: Math.max(p.start.y, p.end.y) + 1,
+            //     width: p.end.x - p.start.x,
+            //     height: 1,
+            //     color: 0x0000ff,
+            // }]
+            let o = p.start.y <= last?.start.y - 4 ? 1 : 0
             return [{
-                x: p.start.x,
-                y: Math.max(p.start.y, p.end.y),
-                width: p.end.x - p.start.x,
+                x: p.start.x + o,
+                y: Math.max(p.start.y, p.end.y) + 1,
+                width: p.end.x - p.start.x + 1 - o,
                 height: 1,
-                color: 0xffffff,
+                type: 'floor',
             }]
-        }).map(p => ({
-            x: 18 + p.x * 4,
-            y: 360 + p.y * 4,
-            width: p.width * 4,
-            height: p.height * 4,
-            color: p.color,
-        }))
+        })
+
+        return { sheetSize, terrain }
     }
 }
