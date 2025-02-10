@@ -276,6 +276,7 @@ export const TerrainGen = class {
     pullSheet({ sheetSize, path }) {
         let terrain = path.flatMap((p, i) => {
             let last = path[i - 1]
+            let next = path[i + 1]
             if (p.type === 'jump') return [] /*{
                 x: p.start.x + 1,
                 y: p.start.y,
@@ -297,11 +298,14 @@ export const TerrainGen = class {
             //     height: 1,
             //     color: 0x0000ff,
             // }]
-            let o = p.start.y <= last?.start.y - 4 ? 1 : 0
+            let startShift = p.start.y <= last?.start.y - 4 ? 1 : 0
+            let endShift = next?.type === 'fall' ? 1 : 0
+            let width = p.end.x - p.start.x + 1 - startShift - endShift
+            if (width <= 0) return []
             return [{
-                x: p.start.x + o,
+                x: p.start.x + startShift,
                 y: Math.max(p.start.y, p.end.y) + 1,
-                width: p.end.x - p.start.x + 1 - o,
+                width,
                 height: 1,
                 type: 'floor',
             }]

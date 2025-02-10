@@ -103,16 +103,20 @@ const Game = class {
                 this.renderEntity((x + e.x) * tileSize + 300, e.y * tileSize + 650, e.width * tileSize, e.height * tileSize, e.type)
             }
         }
-        for (let i = 0, x = -this.at; i < this.path.length; x += this.path[i++].sheetSize) {
-            for (let { start, end, type } of this.path[i].path) {
-                this.cx.fillStyle(type === 'straight' ? 0x00ff00 : 0xff0000)
-                this.cx.fillRect((x + start.x) * tileSize + 300 + tileSize * 0.5, start.y * tileSize + 650 + tileSize * 0.4, tileSize * 0.2, tileSize * 0.2)
-                this.cx.fillRect((x + end.x) * tileSize + 300 + tileSize * 0.3, end.y * tileSize + 650 + tileSize * 0.4, tileSize * 0.2, tileSize * 0.2)
-                this.cx.lineStyle(2, type === 'straight' ? 0x00ff00 : 0xff0000)
-                if (type === 'jump') {
-                    this.cx.quadraticBetween((x + start.x) * tileSize + 300 + tileSize * 0.5, start.y * tileSize + 650 + tileSize * 0.5, (x + end.x) * tileSize + 300 + tileSize * 0.5, 1 / (tileSize), -4)
-                } else {
-                    this.cx.lineBetween((x + start.x) * tileSize + 300 + tileSize * 0.5, start.y * tileSize + 650 + tileSize * 0.5, (x + end.x) * tileSize + 300 + tileSize * 0.3, end.y * tileSize + 650 + tileSize * 0.5)
+
+        if (this.keyboardCheat) {
+            for (let i = 0, x = -this.at; i < this.path.length; x += this.path[i++].sheetSize) {
+                for (let { start, end, type } of this.path[i].path) {
+                    this.cx.lineStyle(2, type === 'jump' ? 0x00ff00 : type === 'fall' ? 0xff0000 : 0x4444ff)
+                    let startX = (x + start.x) * tileSize + 300 + tileSize * 0.5
+                    let startY = start.y * tileSize + 650 + tileSize * 0.5
+                    let endX = (x + end.x) * tileSize + 300 + tileSize * 0.5
+                    let endY = end.y * tileSize + 650 + tileSize * 0.5
+                    if (type === 'jump' || type === 'fall') {
+                        this.cx.quadraticBetween(startX, startY, endX, 1 / tileSize, type === 'fall' ? 0 : -4)
+                    } else {
+                        this.cx.lineBetween(startX, startY, endX, endY)
+                    }
                 }
             }
         }
@@ -124,9 +128,9 @@ const Game = class {
         let timeslices = Math.max(2, Math.min(20, delta * 500)) // 500 TPS physics because integrals and quadratics are hard
         let timesliceDelta = delta / timeslices
 
-        let relevantTerrain = []
         let boundLeft = this.runner.x
         let boundRight = boundLeft + 1 + delta * NOTE_PER_SEC
+        let relevantTerrain = []
         for (let i = 0, x = 0; i < this.terrain.length; x += this.terrain[i++].sheetSize) {
             for (let e of this.terrain[i].terrain) {
                 if ((x + e.x) < boundRight && (x + e.x) + e.width > boundLeft || 1) relevantTerrain.push({ ...e, e, x: x + e.x })
@@ -136,8 +140,8 @@ const Game = class {
         for (let i = 0; i < timeslices; i++) {
             this.at += timesliceDelta * NOTE_PER_SEC
             this.runner.x += timesliceDelta * NOTE_PER_SEC
-            this.runner.y += (this.runner.vy + timesliceDelta * NOTE_PER_SEC / 2) * timesliceDelta * NOTE_PER_SEC
-            this.runner.vy += timesliceDelta * NOTE_PER_SEC
+            this.runner.y += (this.runner.vy + timesliceDelta * NOTE_PER_SEC * 2) * timesliceDelta * NOTE_PER_SEC
+            this.runner.vy += timesliceDelta * NOTE_PER_SEC * 2
             let contactedTerrain = relevantTerrain.filter(e => this.runner.x < e.x + e.width && this.runner.x + 1 > e.x && this.runner.y < e.y + e.height && this.runner.y + 1 > e.y)
             for (let e of contactedTerrain) {
                 if (e.type !== 'floor') continue
@@ -145,10 +149,19 @@ const Game = class {
                 let pushRight = e.x + e.width - this.runner.x
                 let pushUp = this.runner.y + 1 - e.y
                 let pushDown = e.y + e.height - this.runner.y
-                if (Math.min(pushUp, pushDown) <= Math.min(pushLeft, pushRight)) {
-                    if (pushUp <= pushDown) {
+                if (Math.min(pushUp - 0.25, pushDown) <= Math.min(pushLeft, pushRight)) {
+                    if (pushUp - 0.25 <= pushDown) {
+                        let jumping = this.mouse || this.keyboard ? true : false
+                        if (this.keyboardCheat) {
+                            for (let i = 0, x = 0; i < this.path.length; x += this.path[i++].sheetSize) {
+                                for (let e of this.path[i].path) {
+                                    if (e.type === 'jump' && x + e.start.x < this.runner.x && x + (e.start.x + e.end.x) / 2 > this.runner.x) jumping = true
+                                }
+                            }
+                        }
+
                         this.runner.y = e.y - 1
-                        this.runner.vy = Math.min(this.runner.vy, this.mouse || this.keyPosition ? -2 * Math.sqrt(2) : 0)
+                        this.runner.vy = Math.min(this.runner.vy, jumping ? -4 : 0)
                     } else {
                         this.runner.y = e.y + e.height
                         this.runner.vy = Math.max(this.runner.vy, 0)
@@ -183,10 +196,12 @@ const Game = class {
         this.mouse = false
     }
     keyDown(key) {
-        if (key === ' ') this.key = true
+        if (key === ' ') this.keyboard = true
+        if (key === 'c') this.keyboardCheat = true
     }
     keyUp(key) {
-        if (key === ' ') this.key = false
+        if (key === ' ') this.keyboard = false
+        if (key === 'c') this.keyboardCheat = false
     }
 }
 
