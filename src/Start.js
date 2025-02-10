@@ -9,10 +9,28 @@ export const Start = class extends Phaser.Scene {
         this.input.mouse.disableContextMenu()
 
         let ax = new AudioContext()
-        if (ax.state === 'running') {
-            this.scene.start('Play', ax)
-            return
-        }
+        // if (ax.state === 'running') {
+        //     this.scene.start('Play', ax)
+        //     return
+        // }
+
+        this.add.rectangle(0, 0, 1600, 900, 0x161616).setDisplayOrigin(0, 0)
+
+        this.add.text(0, 250, 'Chromatica', {
+            align: 'center',
+            color: '#fff',
+            fontFamily: 'Ubuntu Titling',
+            fontSize: 160,
+            fixedWidth: 1600,
+        })
+
+        this.add.text(0, 700, 'Press any key to continue...', {
+            align: 'center',
+            color: '#fff',
+            fontFamily: 'Ubuntu Titling',
+            fontSize: 30,
+            fixedWidth: 1600,
+        })
 
         let started = false
         let tryStart = async () => {
@@ -22,7 +40,6 @@ export const Start = class extends Phaser.Scene {
             started = true
             this.scene.start('Play', ax)
         }
-        tryStart()
 
         this.input.on('pointerdown', tryStart)
         this.input.on('pointerup', tryStart)

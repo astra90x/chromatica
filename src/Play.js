@@ -1,5 +1,39 @@
 import { Random, Synth, MusicGen, ClickGen, PathGen, TerrainGen } from './core.js'
 
+let createPalette = palette => {
+    let values = Object.values(palette)
+    palette.get = id => {
+        if (typeof id === 'string') return palette[id]
+        if (typeof id === 'number') return id < values.length ? values[id] : id
+        throw new Error('Unknown color')
+    }
+    palette.blend = (a, b, amount = 0.5) => {
+        if (amount < 0) amount = 0
+        if (!(amount < 1)) amount = 1
+        a = palette.get(a)
+        b = palette.get(b)
+        let bm = (amount * 256) | 0
+        let am = 256 - bm
+        return (
+            (am * (a & 0xff00ff) + bm * (b & 0xff00ff)) & 0xff00ff00 |
+            (am * (a & 0x00ff00) + bm * (b & 0x00ff00)) & 0x00ff0000
+        ) >>> 8
+    }
+    return palette
+}
+
+let palette = createPalette({
+    red: 0xff302d,
+    yellow: 0xff9f27,
+    orange: 0xf7fe33,
+    green: 0x59fe39,
+    cyan: 0x22e5fd,
+    blue: 0x2572fd,
+    purple: 0x5131fd,
+    black: 0x333333,
+    white: 0xffffff,
+})
+
 const Game = class {
     constructor(cx, synth) {
         this.cx = cx
@@ -25,6 +59,7 @@ const Game = class {
         this.path = []
         this.terrain = []
         this.at = 0
+        this.time = 0
 
         this.runner = { x: 0, y: 0, vy: 0 }
         this.input = new Map()
@@ -117,17 +152,7 @@ const Game = class {
             return
         }
 
-        let keyColor = ({
-            'black': 0x333333,
-            'white': 0xffffff,
-            'red': 0xff0000,
-            'orange': 0xff7f00,
-            'yellow': 0xffff00,
-            'green': 0x00ff00,
-            'cyan': 0x0000ff,
-            'blue': 0x0000ff,
-            'purple': 0x7f00ff,
-        })[type]
+        let keyColor = palette[type]
 
         if (keyColor != null) {
             this.cx.fillStyle(keyColor)
@@ -152,15 +177,28 @@ const Game = class {
     }
 
     renderWorld() {
-        this.cx.fillStyle(0xeeeeee)
+        this.cx.fillStyle(0x161616)
         this.cx.fillRect(0, 0, 1600, 900)
 
+        let lowestOctave = -1
+        let highestOctave = 1
+        let overflowKeys = 1
+
+        let lowestKey = 12 * lowestOctave - overflowKeys
+        let highestKey = 12 * (1 + highestOctave) - 1 + overflowKeys
+
         let noteSize = 5
-        this.cx.fillStyle(0x333333)
-        this.cx.fillRect(300, 200 - noteSize * 20, 1, noteSize * 40)
+        this.cx.fillStyle(0xeeeeee)
+        this.cx.fillRect(300, 100, 1, noteSize * (highestKey - lowestKey + 1))
         for (let i = 0, x = -this.at; i < this.notes.length; x += this.notes[i++].sheetSize) {
             for (let note of this.notes[i].notes) {
-                this.cx.fillRect(300 + (x + note.time) * noteSize, 200 - note.keyPosition * noteSize, note.duration * noteSize, noteSize)
+                let range = Math.floor(note.keyPosition / 12)
+                let yLevel = highestKey - Math.min(Math.max(note.keyPosition, lowestKey), highestKey)
+                let color = palette.get([0, 9, 1, 9, 2, 3, 9, 4, 9, 5, 9, 6][((note.keyPosition % 12) + 12) % 12])
+                if (range < 0) color = palette.blend(color, 'black', -range * 0.3 - 0.15)
+                if (range > 0) color = palette.blend(color, 'white', range * 0.3 - 0.15)
+                this.cx.fillStyle(color)
+                this.cx.fillRect(300 + (x + note.time) * noteSize, 100 + yLevel * noteSize, note.duration * noteSize, noteSize)
             }
         }
 
@@ -191,7 +229,7 @@ const Game = class {
         this.renderEntity((-this.at + this.runner.x) * tileSize + 300, this.runner.y * tileSize + 650, tileSize, tileSize, 'runner')
     }
 
-    renderInterface() {
+    renderConfig() {
         if (!this.configMenu) return
 
         let config = {
@@ -277,6 +315,24 @@ const Game = class {
         }
     }
 
+    renderInterface() {
+        this.renderConfig()
+
+        if (this.time < 0.5) {
+            let a = 1 - this.time / 0.5
+            this.cx.fillStyle(palette.white, a * a * (3 - 2 * a))
+            this.cx.fillText(500, 700, { width: 600, height: 30 }, 'Press any key to continue...')
+        }
+
+        let xValues = [383, 463, 558, 620, 711, 846, 939, 1005, 1049, 1124]
+        for (let i = 0; i < 10; i++) {
+            let a = Math.min(Math.max((this.time - i * 0.15 - 0.5) / (0.75 + i * 0.05), 0), 1)
+            let b = Math.min(Math.max((this.time - i * 0.15 - 0.5) / (0.3 + i * 0.1), 0), 1)
+            this.cx.fillStyle(palette.blend('white', palette.blend(i % 7, 'black', 0.05), b * b * (3 - 2 * b)))
+            this.cx.fillText(xValues[i], 250 - 75 * a * a * (3 - 2 * a), { height: 160 }, 'Chromatica'.charAt(i))
+        }
+    }
+
     update(delta) {
         if (this.configMenu) return
 
@@ -338,9 +394,9 @@ const Game = class {
                 if (this.playedNotes.has(note)) continue
 
                 let playIn = (x + note.time) / this.config.notesPerSec + this.config.audioSync
-                if (playIn > 0.5) continue
+                if (playIn > 0.1) continue
                 this.playedNotes.add(note)
-                if (playIn < 0.05) continue
+                if (playIn < 0.01) continue
 
                 let time = this.synth.ax.currentTime + playIn
                 let duration = note.duration / this.config.notesPerSec
@@ -349,7 +405,9 @@ const Game = class {
         }
     }
 
-    render(_time, delta) {
+    render(delta) {
+        this.time += delta
+
         if (this.input.get('Escape') < 0) this.configMenu = !this.configMenu
 
         this.synth.setVolume(this.config.volume)
@@ -475,7 +533,7 @@ export const Play = class extends Phaser.Scene {
         this.input.keyboard.on('keyup', e => this.gameLogic.keyUp(e.code))
     }
 
-    update(time, delta) {
-        this.gameLogic.render(time / 1000, delta / 1000)
+    update(_time, delta) {
+        this.gameLogic.render(delta / 1000)
     }
 }
