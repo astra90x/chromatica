@@ -8,7 +8,11 @@ const Game = class {
     constructor(cx, synth) {
         this.cx = cx
         this.synth = synth
-        synth.setVolume(0.5)
+        this.config = {
+            volume: 0.5,
+            audioSync: 1,
+            notesPerMinute: 180,
+        }
 
         this.random = new Random()
         this.musicGen = new MusicGen(this.random)
@@ -53,12 +57,14 @@ const Game = class {
     }
 
     pullTutorial() {
-        let notes = []
+        let notes = [
+            { time: 20, duration: 1, keyPosition: 0, frequency: 440 * 2 ** (-9 / 12), gain: 0.5 },
+        ]
         let terrain = [
             { x: 0, y: 1, width: 7, height: 1, type: 'floor' },
             { x: 10, y: 1, width: 13, height: 1, type: 'floor' },
             { x: 14, y: 0, width: 1, height: 1, type: 'black' },
-            { x: 20, y: -1, width: 1, height: 1, type: 'white' },
+            { x: 20, y: 0, width: 1, height: 1, type: 'white' },
 
             { x: 8, y: -2, width: 1, height: 1, type: 'tutorialJump' },
             { x: 14, y: -4, width: 1, height: 1, type: 'tutorialBlack' },
@@ -69,16 +75,17 @@ const Game = class {
             { start: { x: 6, y: 0 }, end: { x: 10, y: 0 }, type: 'jump' },
             { start: { x: 10, y: 0 }, end: { x: 12, y: 0 }, type: 'straight' },
             { start: { x: 12, y: 0 }, end: { x: 16, y: 0 }, type: 'jump' },
-            { start: { x: 16, y: 0 }, end: { x: 23, y: 0 }, type: 'straight' },
+            { start: { x: 16, y: 0 }, end: { x: 22, y: 0 }, type: 'straight' },
+            { start: { x: 22, y: 0 }, end: { x: 26, y: 0 }, type: 'jump' },
         ]
-        this.notes.push({ sheetSize: 23, notes })
-        this.clicks.push({ sheetSize: 23, clicks: [] })
-        this.path.push({ sheetSize: 23, path })
-        this.terrain.push({ sheetSize: 23, terrain })
+        this.notes.push({ sheetSize: 26, notes })
+        this.clicks.push({ sheetSize: 26, clicks: [] })
+        this.path.push({ sheetSize: 26, path })
+        this.terrain.push({ sheetSize: 26, terrain })
     }
 
     pull() {
-        if (this.notes.length > 0 && this.at > this.notes[0].sheetSize + 16) {
+        if (this.notes.length > 0 && this.at > this.notes[0].sheetSize + 64) {
             this.at -= this.notes[0].sheetSize
             this.runner.x -= this.notes[0].sheetSize
             this.notes.shift()
@@ -109,7 +116,7 @@ const Game = class {
             return
         }
 
-        this.cx.fillStyle(({
+        let keyColor = ({
             'black': 0x333333,
             'white': 0xffffff,
             'red': 0xff0000,
@@ -119,13 +126,34 @@ const Game = class {
             'cyan': 0x0000ff,
             'blue': 0x0000ff,
             'purple': 0x7f00ff,
-            'floor': 0xffffff,
-            'runner': 0x999999,
-        })[type] ?? 0xff00ff)
+        })[type]
+
+        if (keyColor != null) {
+            this.cx.fillStyle(keyColor)
+            this.cx.fillRoundedRect(x, y, width, height, { tl: 6, tr: 6, bl: 0, br: 0 })
+            return
+        }
+
+        if (type === 'runner') {
+            this.cx.fillStyle(0x999999)
+            this.cx.fillRoundedRect(x, y, width, height, 6)
+            return
+        }
+
+        if (type === 'floor') {
+            this.cx.fillStyle(0x333333)
+            this.cx.fillRoundedRect(x, y, width, height, 6)
+            return
+        }
+
+        this.cx.fillStyle(0xff00ff)
         this.cx.fillRect(x, y, width, height)
     }
 
     renderWorld() {
+        this.cx.fillStyle(0xeeeeee)
+        this.cx.fillRect(0, 0, 1600, 900)
+
         let noteSize = 5
         this.cx.fillStyle(0x333333)
         this.cx.fillRect(300, 200 - noteSize * 20, 1, noteSize * 40)
@@ -233,6 +261,7 @@ const Game = class {
     }
 
     render(_time, delta) {
+        this.synth.setVolume(this.config.volume)
         this.update(delta)
         this.pull()
         this.playMusic()

@@ -35,6 +35,8 @@ export const Synth = class {
         this.ax = ax
         this.out = new GainNode(ax)
         this.out.connect(ax.destination)
+        this.volume = 1
+        this.hasPlayedNote = false
 
         this.instruments = new Map()
 
@@ -62,9 +64,12 @@ export const Synth = class {
     }
 
     setVolume(volume) {
+        if (volume === this.volume) return
+        this.volume = volume
+
         let rawVolume = volume * volume
-        if (this.ax.currentTime === 0) {
-            this.out.gain.setValueAtTime(rawVolume, 0)
+        if (this.hasPlayedNote) {
+            this.out.gain.setValueAtTime(rawVolume, this.ax.currentTime)
         } else {
             this.out.gain.linearRampToValueAtTime(rawVolume, this.ax.currentTime + 0.01)
         }
@@ -104,6 +109,7 @@ export const Synth = class {
         g.gain.setValueAtTime(gain * (adsr.sustainLevel + (1 - adsr.sustainLevel) * Math.exp((peakAt - releaseAt) / decayTau)), releaseAt)
         g.gain.linearRampToValueAtTime(0, stopAt)
         g.connect(this.out)
+        this.hasPlayedNote = true
 
         let l = new BiquadFilterNode(this.ax, {
             Q: 0,
@@ -185,10 +191,10 @@ export const MusicGen = class {
     }
     pullSheet() {
         let notes = []
-        for (let offset = 0; offset < 256; offset += 64) {
+        for (let offset = 0; offset < 192; offset += 64) {
             notes.push(...this.pullFragment().map(note => ({ ...note, time: offset + note.time })))
         }
-        return { sheetSize: 256, notes }
+        return { sheetSize: 192, notes }
     }
 }
 
@@ -274,44 +280,75 @@ export const PathGen = class {
 export const TerrainGen = class {
     constructor(rand) {
         this.rand = rand
+        this.deferred = []
     }
     pullSheet({ sheetSize, path }) {
-        let terrain = path.flatMap((p, i) => {
+        let terrain = this.deferred
+
+        for (let i = 0; i < path.length; i++) {
+            let p = path[i]
             let last = path[i - 1]
             let next = path[i + 1]
-            if (p.type === 'jump') return [] /*{
-                x: p.start.x + 1,
-                y: p.start.y,
-                width: 1,
-                height: 1,
-                type: 'black',
-            }, {
-                x: p.start.x + 1,
-                y: Math.max(p.start.y, p.end.y),
-                width: p.end.x - p.start.x,
-                height: 1,
-                type: 'black',
-            }]*/
-            if (p.type === 'fall') return []
-            // {
-            //     x: p.start.x,
-            //     y: Math.max(p.start.y, p.end.y) + 1,
-            //     width: p.end.x - p.start.x,
-            //     height: 1,
-            //     color: 0x0000ff,
-            // }]
+            if (p.type === 'jump') {
+                if (p.start.y === p.end.y && this.rand.true(0.6)) {
+                    terrain.push({
+                        x: p.start.x + 1,
+                        y: p.start.y + 1,
+                        width: 3,
+                        height: 1,
+                        type: 'floor',
+                    }, {
+                        x: p.start.x + this.rand.chance(0, 1, 4, 1),
+                        y: p.start.y,
+                        width: 1,
+                        height: 1,
+                        type: 'black',
+                    })
+                }
+                continue
+            }
+            if (p.type === 'fall') continue
             let startShift = p.start.y <= last?.start.y - 4 ? 1 : 0
             let endShift = next?.type === 'fall' ? 1 : 0
             let width = p.end.x - p.start.x + 1 - startShift - endShift
-            if (width <= 0) return []
-            return [{
+            if (width <= 0) continue
+            terrain.push({
                 x: p.start.x + startShift,
                 y: Math.max(p.start.y, p.end.y) + 1,
                 width,
                 height: 1,
                 type: 'floor',
-            }]
+            })
+            if (width >= 3 && this.rand.true((width - 2) * 0.15)) terrain.push({
+                x: p.start.x + startShift + this.rand.int(1, width - 2, true),
+                y: Math.max(p.start.y, p.end.y),
+                width: 1,
+                height: 1,
+                type: 'white',
+            })
+        }
+
+        let floorsByEnd = new Map()
+        terrain = terrain.filter(t => {
+            if (t.type !== 'floor') return true
+            let extend = floorsByEnd.get(t.y + t.x * 1000)
+            if (extend == null) {
+                floorsByEnd.set(t.y + (t.x + t.width) * 1000, t)
+                return true
+            }
+            floorsByEnd.delete(extend.y + (extend.x + extend.width) * 1000)
+            extend.width += t.width
+            floorsByEnd.set(extend.y + (extend.x + extend.width) * 1000, extend)
+            return false
         })
+
+        let deferred = []
+        terrain = terrain.filter(t => {
+            let defer = t.x + t.width >= sheetSize
+            if (defer) deferred.push({ ...t, x: t.x - sheetSize })
+            return !defer
+        })
+        this.deferred = deferred
 
         return { sheetSize, terrain }
     }
