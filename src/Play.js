@@ -65,12 +65,14 @@ const Game = class {
         this.input = new Map()
 
         this.time = 0
-        this.homeMenu = true
-        this.homeMenuTransition = 1
-        this.homeSelected = 0
         this.silenceEffectStartsAt = -Infinity
         this.lastEffectEndsAt = -Infinity
 
+        this.homeMenu = true
+        this.homeMenuTransition = 1
+        this.homeSelected = 0
+        this.deathMenuTransition = 0
+        this.deathMenuSelected = 0
         this.configMenu = false
         this.configSelected = 0
 
@@ -94,7 +96,7 @@ const Game = class {
         this.terrain = []
         this.at = 0
 
-        this.runner = home ? null : { x: 0, y: 0, vy: 0, alive: true }
+        this.runner = home ? null : { x: 0, y: 0, vx: 1, vy: 0, alive: true, traveled: 0 }
 
         if (this.config.tutorial && !home) this.pullTutorial()
         this.pull()
@@ -182,7 +184,7 @@ const Game = class {
         // terrainTotalMin = 256 - 16
     }
 
-    renderEntity(x, y, width, height, type) {
+    renderEntity(x, y, width, height, type, e) {
         let tutorialText = ({
             'tutorialJump': 'Tap or press space to\njump over this gap',
             'tutorialBlack': 'Avoid black dissonance keys',
@@ -198,8 +200,10 @@ const Game = class {
         let keyColor = palette[type]
 
         if (keyColor != null) {
+            let pressedFor = this.time - (this.triggeredKeys.get(e) ?? this.time)
+            let depth = Math.min(pressedFor, 0.1) / 0.1 * (height - 7)
             this.cx.fillStyle(keyColor)
-            this.cx.fillRoundedRect(x, y, width, height, { tl: 6, tr: 6, bl: 0, br: 0 })
+            this.cx.fillRoundedRect(x, y + depth, width, height - depth, { tl: 6, tr: 6, bl: 0, br: 0 })
             return
         }
 
@@ -272,7 +276,7 @@ const Game = class {
         let tileSize = 25
         for (let i = 0, x = -this.at; i < this.terrain.length; x += this.terrain[i++].sheetSize) {
             for (let e of this.terrain[i].terrain) {
-                this.renderEntity((x + e.x) * tileSize + commonX, e.y * tileSize + worldY, e.width * tileSize, e.height * tileSize, e.type)
+                this.renderEntity((x + e.x) * tileSize + commonX, e.y * tileSize + worldY, e.width * tileSize, e.height * tileSize, e.type, e)
             }
         }
 
@@ -295,6 +299,41 @@ const Game = class {
 
         if (this.runner)
             this.renderEntity((-this.at + this.runner.x) * tileSize + commonX, this.runner.y * tileSize + worldY, tileSize, tileSize, 'runner')
+    }
+
+    renderDeath() {
+        if (!this.runner || this.runner.alive) return
+
+        let b = this.deathMenuTransition
+
+        this.cx.fillStyle(0x222222, 0.6 * b * b * (3 - 2 * b))
+        this.cx.fillRect(200, 0, 1200, 900)
+
+        this.cx.fillStyle(0xeeeeee, b * b * (3 - 2 * b))
+        this.cx.fillText(600, 180, { width: 400, height: 48 }, 'Game Over')
+
+        this.cx.fillText(300, 260, { width: 1000, height: 52 }, `Score: ${Math.floor(this.runner.traveled)} notes played`)
+
+        this.deathMenuSelected = ((
+            this.deathMenuSelected - (this.input.get('ArrowUp') < 0) + (this.input.get('ArrowDown') < 0)
+        ) + 2) % 2
+
+        let items = ['Play Again', 'Quit']
+        for (let i = 0; i < items.length; i++) {
+            let selected = this.deathMenuSelected === i
+            this.cx.fillStyle(selected ? palette.blend(0xffffff, 0x999999, (Math.sin(this.time * 8) + 1) / 2) : 0xdddddd, b * b * (3 - 2 * b))
+            this.cx.fillText(400, 340 + i * 50, { width: 800, height: 36 }, items[i])
+        }
+
+        if (this.input.get('Space') < 0 || this.input.get('Enter') < 0) {
+            if (this.deathMenuSelected === 0) {
+                this.startGame()
+            } else if (this.deathMenuSelected === 1) {
+                this.endGame()
+                this.homeMenu = true
+            }
+            this.scheduleEffect('generic')
+        }
     }
 
     renderConfig() {
@@ -456,6 +495,7 @@ const Game = class {
     }
 
     renderInterface() {
+        this.renderDeath()
         this.renderHome()
         this.renderConfig()
         this.renderCredits()
@@ -483,7 +523,13 @@ const Game = class {
 
         for (let i = 0; i < timeslices; i++) {
             this.at += timesliceDelta * this.config.notesPerSec
-            if (this.runner.alive) this.runner.x += (1 + (this.at - this.runner.x) * 0.05) * timesliceDelta * this.config.notesPerSec // FIXME lerp 0.05
+            let dx = (1 + (this.at - this.runner.x) * 0.05) * timesliceDelta * this.config.notesPerSec // FIXME lerp 0.05
+            this.runner.x += this.runner.vx * dx
+            if (this.runner.alive) {
+                this.runner.traveled += dx
+            } else {
+                this.runner.vx *= 0.997 // FIXME lerp 0.997
+            }
             this.runner.y += (this.runner.vy + timesliceDelta * this.config.notesPerSec) * timesliceDelta * this.config.notesPerSec
             this.runner.vy += timesliceDelta * this.config.notesPerSec * 2
             let contactedTerrain = relevantTerrain.filter(e => this.runner.x < e.x + e.width && this.runner.x + 1 > e.x && this.runner.y < e.y + e.height && this.runner.y + 1 > e.y)
@@ -559,6 +605,7 @@ const Game = class {
     render(delta) {
         this.time += delta
         this.homeMenuTransition = Math.min(Math.max(this.homeMenuTransition + delta * (this.homeMenu ? 1 : -1), 0), 1)
+        this.deathMenuTransition = Math.min(Math.max(this.deathMenuTransition + (this.runner && !this.runner.alive ? delta : -1), 0), 1)
 
         if (this.input.get('Escape') < 0) {
             if (this.configMenu) this.configMenu = false
