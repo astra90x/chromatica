@@ -60,6 +60,7 @@ const Game = class {
         this.terrain = []
         this.at = 0
         this.time = 0
+        this.lastEffectEndsAt = -Infinity
 
         this.runner = { x: 0, y: 0, vy: 0 }
         this.input = new Map()
@@ -71,24 +72,25 @@ const Game = class {
         this.pull()
     }
 
-    scheduleMusic() {
-        if (this.synth.ax.currentTime < this.musicEndsAt - 5) return
-
-        let musicStartsAt = Math.max(this.synth.ax.currentTime, this.musicEndsAt)
-        let music = this.musicGen.pullSheet()
-        this.synth.play(music.map(x => ({ ...x, time: x.time + musicStartsAt })))
-        this.musicEndsAt = musicStartsAt + music[music.length - 1].time + music[music.length - 1].duration
-    }
-
     scheduleEffect(effect) {
-        let notes = ({
-            black: [0, 3, 6],
-        })[effect] ?? []
+        if (this.time < this.lastEffectEndsAt) return
 
-        let time = this.synth.ax.currentTime
         let duration = 1 / this.config.notesPerSec
-        for (let note of notes) {
-            this.synth.scheduleNote({ time, duration, frequency: 440 * 2 ** ((note - 9) / 12), gain: 0.5 })
+
+        let notes = ({
+            generic: [[0], [0, 2]],
+            important: [[0, 2, 4]],
+            up: [[5], [7]],
+            down: [[-2], [0]],
+            black: [[0, 3, 6]],
+        })[effect] ?? []
+        this.lastEffectEndsAt = this.time + notes.length * duration / 3
+
+        for (let i = 0; i < notes.length; i++) {
+            let time = this.synth.ax.currentTime + duration / 3 * i
+            for (let note of notes[i]) {
+                this.synth.scheduleNote({ time, duration, frequency: 440 * 2 ** ((note - 9) / 12), gain: 0.25 })
+            }
         }
     }
 
@@ -147,7 +149,7 @@ const Game = class {
         })[type]
 
         if (tutorialText != null) {
-            this.cx.fillStyle(0x000000)
+            this.cx.fillStyle(0xffffff)
             this.cx.fillText(x + width / 2 - width * 10, y, { width: width * 20, height: height / 2 }, tutorialText)
             return
         }
@@ -187,9 +189,18 @@ const Game = class {
         let lowestKey = 12 * lowestOctave - overflowKeys
         let highestKey = 12 * (1 + highestOctave) - 1 + overflowKeys
 
+        let commonX = 300
+        let rollY = 100
+
         let noteSize = 5
-        this.cx.fillStyle(0xeeeeee)
-        this.cx.fillRect(300, 100, 1, noteSize * (highestKey - lowestKey + 1))
+        this.cx.fillStyle(0x383838)
+        this.cx.fillRect(0, rollY - 9, 1600, noteSize * (highestKey - lowestKey + 1) + 18)
+        this.cx.fillStyle(0x222222)
+        this.cx.fillRect(0, rollY - 2, 1600, noteSize * (highestKey - lowestKey + 1) + 4)
+        this.cx.fillStyle(0x282828)
+        this.cx.fillRect(0, rollY + noteSize * (highestKey - 11), 1600, noteSize * 12)
+        this.cx.fillStyle(0x515151)
+        this.cx.fillRect(commonX, rollY - 2, 1, noteSize * (highestKey - lowestKey + 1) + 4)
         for (let i = 0, x = -this.at; i < this.notes.length; x += this.notes[i++].sheetSize) {
             for (let note of this.notes[i].notes) {
                 let range = Math.floor(note.keyPosition / 12)
@@ -198,14 +209,24 @@ const Game = class {
                 if (range < 0) color = palette.blend(color, 'black', -range * 0.3 - 0.15)
                 if (range > 0) color = palette.blend(color, 'white', range * 0.3 - 0.15)
                 this.cx.fillStyle(color)
-                this.cx.fillRect(300 + (x + note.time) * noteSize, 100 + yLevel * noteSize, note.duration * noteSize, noteSize)
+                let left = commonX + (x + note.time) * noteSize
+                let right = left + note.duration * noteSize
+                this.cx.fillRect(left, 100 + yLevel * noteSize, right - left, noteSize)
+                let insetLeft = left + 1
+                let insetRight = Math.min(right - 1, commonX)
+                if (insetLeft < insetRight) {
+                    this.cx.fillStyle(palette.blend(color, 0x222222, 1 - (commonX - right) / 150))
+                    this.cx.fillRect(insetLeft, rollY + yLevel * noteSize + 1, insetRight - insetLeft, noteSize - 2)
+                }
             }
         }
+
+        let worldY = 650
 
         let tileSize = 25
         for (let i = 0, x = -this.at; i < this.terrain.length; x += this.terrain[i++].sheetSize) {
             for (let e of this.terrain[i].terrain) {
-                this.renderEntity((x + e.x) * tileSize + 300, e.y * tileSize + 650, e.width * tileSize, e.height * tileSize, e.type)
+                this.renderEntity((x + e.x) * tileSize + commonX, e.y * tileSize + worldY, e.width * tileSize, e.height * tileSize, e.type)
             }
         }
 
@@ -213,10 +234,10 @@ const Game = class {
             this.cx.lineStyle(2, 0x444444)
             for (let i = 0, x = -this.at; i < this.path.length; x += this.path[i++].sheetSize) {
                 for (let { start, end, type } of this.path[i].path) {
-                    let startX = (x + start.x) * tileSize + 300 + tileSize * 0.5
-                    let startY = start.y * tileSize + 650 + tileSize * 0.5
-                    let endX = (x + end.x) * tileSize + 300 + tileSize * 0.5
-                    let endY = end.y * tileSize + 650 + tileSize * 0.5
+                    let startX = (x + start.x) * tileSize + commonX + tileSize * 0.5
+                    let startY = start.y * tileSize + worldY + tileSize * 0.5
+                    let endX = (x + end.x) * tileSize + commonX + tileSize * 0.5
+                    let endY = end.y * tileSize + worldY + tileSize * 0.5
                     if (type === 'jump' || type === 'fall') {
                         this.cx.quadraticBetween(startX, startY, endX, 1 / tileSize, type === 'fall' ? 0 : -4)
                     } else {
@@ -226,7 +247,7 @@ const Game = class {
             }
         }
 
-        this.renderEntity((-this.at + this.runner.x) * tileSize + 300, this.runner.y * tileSize + 650, tileSize, tileSize, 'runner')
+        this.renderEntity((-this.at + this.runner.x) * tileSize + commonX, this.runner.y * tileSize + worldY, tileSize, tileSize, 'runner')
     }
 
     renderConfig() {
@@ -264,7 +285,10 @@ const Game = class {
             let displayValue
             if (options.toggle) {
                 if (selected) {
-                    if ((value && this.input.get('ArrowLeft') < 0) || (!value && this.input.get('ArrowRight') < 0) || this.input.get('Space') < 0 || this.input.get('Enter') < 0) value = !value
+                    if ((value && this.input.get('ArrowLeft') < 0) || (!value && this.input.get('ArrowRight') < 0) || this.input.get('Space') < 0 || this.input.get('Enter') < 0) {
+                        value = !value
+                        this.scheduleEffect('generic')
+                    }
                 }
                 displayValue = value ? 'Enabled' : 'Disabled'
                 canLeft = value
@@ -272,7 +296,14 @@ const Game = class {
             } else {
                 let [scale, unit] = options.unit
                 if (selected) {
-                    value += (-(this.input.get('ArrowLeft') <= 0) + (this.input.get('ArrowRight') <= 0)) / scale
+                    if (this.input.get('ArrowLeft') <= 0) {
+                        value -= 1 / scale
+                        this.scheduleEffect('down')
+                    }
+                    if (this.input.get('ArrowRight') <= 0) {
+                        value += 1 / scale
+                        this.scheduleEffect('up')
+                    }
                 }
                 if (value <= options.min) {
                     canLeft = false
@@ -311,6 +342,7 @@ const Game = class {
                 for (let [key, options] of Object.entries(config)) {
                     this.config[key] = options.default
                 }
+                this.scheduleEffect('important')
             }
         }
     }
@@ -408,7 +440,10 @@ const Game = class {
     render(delta) {
         this.time += delta
 
-        if (this.input.get('Escape') < 0) this.configMenu = !this.configMenu
+        if (this.input.get('Escape') < 0) {
+            this.configMenu = !this.configMenu
+            this.scheduleEffect('generic')
+        }
 
         this.synth.setVolume(this.config.volume)
         this.update(delta)

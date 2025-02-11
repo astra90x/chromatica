@@ -268,12 +268,25 @@ export const PathGen = class {
     }
 
     pullSheet({ sheetSize, clicks }) {
-        while (true) {
+        for (let i = 0; i < 10000; i++) {
+            if (i > 100) {
+                clicks = clicks.filter((_, i) => this.rand.true(0.9) || i === 0 || i === clicks.length - 1)
+                while (clicks.length < sheetSize / 7) {
+                    let i = this.rand.int(1, clicks.length - 1)
+                    let before = clicks[i - 1]
+                    let after = clicks[i]
+                    if (after - before < 6) continue
+                    let at = (before + after) / 2
+                    clicks.splice(i, 0, Math.floor(at) + this.rand.true(at % 2))
+                }
+            }
+
             let { y, path } = this.pullCandidate(0, { sheetSize, clicks })
             if (y !== 0) continue
             if (!path.every(p => p.start.y + 1 >= -14 && p.start.y <= 7)) continue
             return { sheetSize, path } // FIXME this is very inefficient
         }
+        throw new Error(`Bad clicks: ${clicks}`)
     }
 }
 
