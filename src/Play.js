@@ -59,16 +59,39 @@ const Game = class {
         this.path = []
         this.terrain = []
         this.at = 0
-        this.time = 0
-        this.lastEffectEndsAt = -Infinity
 
         this.runner = { x: 0, y: 0, vy: 0 }
         this.input = new Map()
 
+        this.time = 0
+        this.homeMenu = true
+        this.homeMenuTransition = 1
+        this.homeSelected = 0
+        this.lastEffectEndsAt = -Infinity
+
         this.configMenu = false
         this.configSelected = 0
 
-        if (this.config.tutorial) this.pullTutorial()
+        this.pull()
+    }
+
+    reset(home) {
+        this.random = new Random()
+        this.musicGen = new MusicGen(this.random)
+        this.clickGen = new ClickGen(this.random)
+        this.pathGen = new PathGen(this.random)
+        this.terrainGen = new TerrainGen(this.random)
+
+        this.playedNotes = new WeakSet()
+        this.notes = []
+        this.clicks = []
+        this.path = []
+        this.terrain = []
+        this.at = 0
+
+        this.runner = { x: 0, y: 0, vy: 0 }
+
+        if (this.config.tutorial && !home) this.pullTutorial()
         this.pull()
     }
 
@@ -182,6 +205,11 @@ const Game = class {
         this.cx.fillStyle(0x161616)
         this.cx.fillRect(0, 0, 1600, 900)
 
+        let a = this.homeMenuTransition
+        let b = 1 - Math.min(Math.max((this.time - 0.35) / 2, 0), 1)
+
+        this.cx.fillStyle(palette.white, a * a * (3 - 2 * a))
+
         let lowestOctave = -1
         let highestOctave = 1
         let overflowKeys = 1
@@ -190,9 +218,9 @@ const Game = class {
         let highestKey = 12 * (1 + highestOctave) - 1 + overflowKeys
 
         let commonX = 300
-        let rollY = 100
+        let rollY = 100 + a * a * (3 - 2 * a) * 400 + b * b * (3 - 2 * b) * 450
 
-        let noteSize = 5
+        let noteSize = 5 + a * a * (3 - 2 * a) * 3
         this.cx.fillStyle(0x383838)
         this.cx.fillRect(0, rollY - 9, 1600, noteSize * (highestKey - lowestKey + 1) + 18)
         this.cx.fillStyle(0x222222)
@@ -211,7 +239,7 @@ const Game = class {
                 this.cx.fillStyle(color)
                 let left = commonX + (x + note.time) * noteSize
                 let right = left + note.duration * noteSize
-                this.cx.fillRect(left, 100 + yLevel * noteSize, right - left, noteSize)
+                this.cx.fillRect(left, rollY + yLevel * noteSize, right - left, noteSize)
                 let insetLeft = left + 1
                 let insetRight = Math.min(right - 1, commonX)
                 if (insetLeft < insetRight) {
@@ -221,7 +249,7 @@ const Game = class {
             }
         }
 
-        let worldY = 650
+        let worldY = 650 + a * a * (3 - 2 * a) * 600
 
         let tileSize = 25
         for (let i = 0, x = -this.at; i < this.terrain.length; x += this.terrain[i++].sheetSize) {
@@ -267,11 +295,11 @@ const Game = class {
             this.configSelected - (this.input.get('ArrowUp') < 0) + (this.input.get('ArrowDown') < 0)
         ) + configLength) % configLength
 
-        this.cx.fillStyle(0x111111, 0.4)
-        this.cx.fillRect(0, 0, 1600, 900)
+        this.cx.fillStyle(0x222222, 0.6)
+        this.cx.fillRect(200, 0, 1200, 900)
 
         this.cx.fillStyle(0xeeeeee)
-        this.cx.fillText(600, 220, { width: 400, height: 48 }, 'Options')
+        this.cx.fillText(600, 240, { width: 400, height: 48 }, 'Options')
 
         let configIndex = 0
         for (let [key, options] of Object.entries(config)) {
@@ -315,18 +343,18 @@ const Game = class {
                 displayValue = `${Math.round(value * scale)}${unit}`
             }
 
-            this.cx.fillStyle(selected ? 0xffffff : 0xd8d8d8)
-            this.cx.fillText(400, 300 + configIndex * 50, { width: 400, height: 36 }, options.name)
-            this.cx.fillText(900, 300 + configIndex * 50, { width: 200, height: 36 }, displayValue)
+            this.cx.fillStyle(selected ? palette.blend(0xffffff, 0x999999, (Math.sin(this.time * 8) + 1) / 2) : 0xdddddd)
+            this.cx.fillText(400, 320 + configIndex * 50, { width: 400, height: 36 }, options.name)
+            this.cx.fillText(900, 320 + configIndex * 50, { width: 200, height: 36 }, displayValue)
             if (canLeft) this.cx.fillTriangle(
-                900, 300 + configIndex * 50 + 18 - 9,
-                900 - 9, 300 + configIndex * 50 + 18,
-                900, 300 + configIndex * 50 + 18 + 9,
+                900, 320 + configIndex * 50 + 18 - 9,
+                900 - 9, 320 + configIndex * 50 + 18,
+                900, 320 + configIndex * 50 + 18 + 9,
             )
             if (canRight) this.cx.fillTriangle(
-                1100, 300 + configIndex * 50 + 18 - 9,
-                1100 + 9, 300 + configIndex * 50 + 18,
-                1100, 300 + configIndex * 50 + 18 + 9,
+                1100, 320 + configIndex * 50 + 18 - 9,
+                1100 + 9, 320 + configIndex * 50 + 18,
+                1100, 320 + configIndex * 50 + 18 + 9,
             )
 
             this.config[key] = value
@@ -335,7 +363,7 @@ const Game = class {
 
         let selected = this.configSelected === configLength - 1
         this.cx.fillStyle(selected ? 0xffffff : 0xd8d8d8)
-        this.cx.fillText(600, 300 + configIndex * 50 + 20, { width: 400, height: 36 }, 'Reset All Options')
+        this.cx.fillText(600, 320 + configIndex * 50 + 20, { width: 400, height: 36 }, 'Reset All Options')
         if (selected) {
             if (this.input.get('Space') < 0 || this.input.get('Enter') < 0) {
                 this.configSelected = 0
@@ -348,21 +376,45 @@ const Game = class {
     }
 
     renderInterface() {
-        this.renderConfig()
-
         if (this.time < 0.5) {
             let a = 1 - this.time / 0.5
             this.cx.fillStyle(palette.white, a * a * (3 - 2 * a))
             this.cx.fillText(500, 700, { width: 600, height: 30 }, 'Press any key to continue...')
         }
 
+        let c = 1 - this.homeMenuTransition
+
         let xValues = [383, 463, 558, 620, 711, 846, 939, 1005, 1049, 1124]
         for (let i = 0; i < 10; i++) {
             let a = Math.min(Math.max((this.time - i * 0.15 - 0.5) / (0.75 + i * 0.05), 0), 1)
             let b = Math.min(Math.max((this.time - i * 0.15 - 0.5) / (0.3 + i * 0.1), 0), 1)
             this.cx.fillStyle(palette.blend('white', palette.blend(i % 7, 'black', 0.05), b * b * (3 - 2 * b)))
-            this.cx.fillText(xValues[i], 250 - 75 * a * a * (3 - 2 * a), { height: 160 }, 'Chromatica'.charAt(i))
+            this.cx.fillText(xValues[i], 250 - 160 * a * a * (3 - 2 * a) - 300 * c * c * (3 - 2 * c), { height: 160 }, 'Chromatica'.charAt(i))
         }
+
+        let b = Math.min(Math.max((this.time - 0.35) / 2, 0), 1)
+
+        if (!this.configMenu) { // bad text rendering workaround
+            this.homeSelected = ((
+                this.homeSelected - (this.input.get('ArrowUp') < 0) + (this.input.get('ArrowDown') < 0)
+            ) + 3) % 3
+
+            let homeItems = ['Play', 'Options', 'Credits']
+            for (let i = 0; i < homeItems.length; i++) {
+                let selected = this.homeSelected === i
+                this.cx.fillStyle(selected ? palette.blend(0xffffff, 0x999999, (Math.sin(this.time * 8) + 1) / 2) : 0xdddddd, b * b * (3 - 2 * b))
+                this.cx.fillText(400, 300 + i * 50 - 300 * c * c * (3 - 2 * c) + (300 - 300 * b * b * (3 - 2 * b)), { width: 800, height: 36 }, homeItems[i])
+            }
+
+            if (this.input.get('Space') < 0 || this.input.get('Enter') < 0) {
+                if (this.homeSelected === 1) {
+                    this.configMenu = !this.configMenu
+                }
+                this.scheduleEffect('generic')
+            }
+        }
+
+        this.renderConfig()
     }
 
     update(delta) {

@@ -271,7 +271,7 @@ export const PathGen = class {
         for (let i = 0; i < 10000; i++) {
             if (i > 100) {
                 clicks = clicks.filter((_, i) => this.rand.true(0.9) || i === 0 || i === clicks.length - 1)
-                while (clicks.length < sheetSize / 7) {
+                for (let j = 0; j < 100 && clicks.length < sheetSize / 7; j++) {
                     let i = this.rand.int(1, clicks.length - 1)
                     let before = clicks[i - 1]
                     let after = clicks[i]
