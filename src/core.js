@@ -269,15 +269,12 @@ export const PathGen = class {
 
     pullSheet({ sheetSize, clicks }) {
         for (let i = 0; i < 10000; i++) {
-            if (i > 100) {
-                clicks = clicks.filter((_, i) => this.rand.true(0.9) || i === 0 || i === clicks.length - 1)
-                for (let j = 0; j < 100 && clicks.length < sheetSize / 7; j++) {
-                    let i = this.rand.int(1, clicks.length - 1)
-                    let before = clicks[i - 1]
-                    let after = clicks[i]
-                    if (after - before < 6) continue
-                    let at = (before + after) / 2
-                    clicks.splice(i, 0, Math.floor(at) + this.rand.true(at % 2))
+            if (i % 100 === 0) {
+                clicks = []
+                let x = 1
+                while (x <= sheetSize - 3) {
+                    clicks.push(x)
+                    x += this.rand.chance(0, 0, 0, 3, 5, 8, 10, 10, 8, 5, 2, 2, 2, 1, 1)
                 }
             }
 

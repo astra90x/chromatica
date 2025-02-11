@@ -54,23 +54,27 @@ const Game = class {
         this.terrainGen = new TerrainGen(this.random)
 
         this.playedNotes = new WeakSet()
+        this.triggeredKeys = new WeakMap()
         this.notes = []
         this.clicks = []
         this.path = []
         this.terrain = []
         this.at = 0
 
-        this.runner = { x: 0, y: 0, vy: 0 }
+        this.runner = null
         this.input = new Map()
 
         this.time = 0
         this.homeMenu = true
         this.homeMenuTransition = 1
         this.homeSelected = 0
+        this.silenceEffectStartsAt = -Infinity
         this.lastEffectEndsAt = -Infinity
 
         this.configMenu = false
         this.configSelected = 0
+
+        this.creditsMenu = false
 
         this.pull()
     }
@@ -83,19 +87,33 @@ const Game = class {
         this.terrainGen = new TerrainGen(this.random)
 
         this.playedNotes = new WeakSet()
+        this.triggeredKeys = new WeakMap()
         this.notes = []
         this.clicks = []
         this.path = []
         this.terrain = []
         this.at = 0
 
-        this.runner = { x: 0, y: 0, vy: 0 }
+        this.runner = home ? null : { x: 0, y: 0, vy: 0, alive: true }
 
         if (this.config.tutorial && !home) this.pullTutorial()
         this.pull()
     }
 
+    startGame() {
+        this.reset(false)
+    }
+
+    endGame() {
+        this.reset(true)
+    }
+
     scheduleEffect(effect) {
+        if (effect === 'silence') {
+            this.silenceEffectStartsAt = this.time
+            return
+        }
+
         if (this.time < this.lastEffectEndsAt) return
 
         let duration = 1 / this.config.notesPerSec
@@ -148,7 +166,7 @@ const Game = class {
     pull() {
         if (this.notes.length > 0 && this.at > this.notes[0].sheetSize + 64) {
             this.at -= this.notes[0].sheetSize
-            this.runner.x -= this.notes[0].sheetSize
+            if (this.runner) this.runner.x -= this.notes[0].sheetSize
             this.notes.shift()
             this.clicks.shift()
             this.path.shift()
@@ -275,7 +293,8 @@ const Game = class {
             }
         }
 
-        this.renderEntity((-this.at + this.runner.x) * tileSize + commonX, this.runner.y * tileSize + worldY, tileSize, tileSize, 'runner')
+        if (this.runner)
+            this.renderEntity((-this.at + this.runner.x) * tileSize + commonX, this.runner.y * tileSize + worldY, tileSize, tileSize, 'runner')
     }
 
     renderConfig() {
@@ -375,7 +394,23 @@ const Game = class {
         }
     }
 
-    renderInterface() {
+    renderCredits() {
+        if (!this.creditsMenu) return
+
+        this.cx.fillStyle(0x222222, 0.6)
+        this.cx.fillRect(200, 0, 1200, 900)
+
+        this.cx.fillStyle(0xeeeeee)
+        this.cx.fillText(600, 240, { width: 400, height: 48 }, 'Options')
+
+        this.cx.fillText(400, 340, { width: 800, height: 36 }, 'Game "Chromatica" by Astra Tsai')
+        this.cx.fillText(400, 400, { width: 800, height: 36 }, 'Font "Ubuntu Titling" by')
+        this.cx.fillText(400, 440, { width: 800, height: 36 }, 'Andy Fitzsimon and Christian Robertson')
+    }
+
+    renderHome() {
+        if (!this.homeMenuTransition) return
+
         if (this.time < 0.5) {
             let a = 1 - this.time / 0.5
             this.cx.fillStyle(palette.white, a * a * (3 - 2 * a))
@@ -394,7 +429,7 @@ const Game = class {
 
         let b = Math.min(Math.max((this.time - 0.35) / 2, 0), 1)
 
-        if (!this.configMenu) { // bad text rendering workaround
+        if (!this.configMenu && !this.creditsMenu) { // bad text rendering workaround
             this.homeSelected = ((
                 this.homeSelected - (this.input.get('ArrowUp') < 0) + (this.input.get('ArrowDown') < 0)
             ) + 3) % 3
@@ -403,28 +438,42 @@ const Game = class {
             for (let i = 0; i < homeItems.length; i++) {
                 let selected = this.homeSelected === i
                 this.cx.fillStyle(selected ? palette.blend(0xffffff, 0x999999, (Math.sin(this.time * 8) + 1) / 2) : 0xdddddd, b * b * (3 - 2 * b))
-                this.cx.fillText(400, 300 + i * 50 - 300 * c * c * (3 - 2 * c) + (300 - 300 * b * b * (3 - 2 * b)), { width: 800, height: 36 }, homeItems[i])
+                this.cx.fillText(400, 300 + i * 50 - 450 * c * c * (3 - 2 * c) + (300 - 300 * b * b * (3 - 2 * b)), { width: 800, height: 36 }, homeItems[i])
             }
 
-            if (this.input.get('Space') < 0 || this.input.get('Enter') < 0) {
-                if (this.homeSelected === 1) {
-                    this.configMenu = !this.configMenu
+            if ((this.input.get('Space') < 0 || this.input.get('Enter') < 0) && this.homeMenu) {
+                if (this.homeSelected === 0) {
+                    this.homeMenu = false
+                    this.startGame()
+                } else if (this.homeSelected === 1) {
+                    this.configMenu = true
+                } else if (this.homeSelected === 2) {
+                    this.creditsMenu = true
                 }
                 this.scheduleEffect('generic')
             }
         }
+    }
 
+    renderInterface() {
+        this.renderHome()
         this.renderConfig()
+        this.renderCredits()
     }
 
     update(delta) {
         if (this.configMenu) return
 
+        if (!this.runner) {
+            this.at += delta * this.config.notesPerSec
+            return
+        }
+
         let timeslices = Math.max(2, Math.min(20, delta * 500)) // 500 TPS physics because integrals and quadratics are hard
         let timesliceDelta = delta / timeslices
 
-        let boundLeft = this.runner.x
-        let boundRight = boundLeft + 1 + delta * this.config.notesPerSec
+        let boundLeft = this.runner.x - 1
+        let boundRight = boundLeft + 2 + delta * this.config.notesPerSec
         let relevantTerrain = []
         for (let i = 0, x = 0; i < this.terrain.length; x += this.terrain[i++].sheetSize) {
             for (let e of this.terrain[i].terrain) {
@@ -434,12 +483,26 @@ const Game = class {
 
         for (let i = 0; i < timeslices; i++) {
             this.at += timesliceDelta * this.config.notesPerSec
-            this.runner.x += (1 + (this.at - this.runner.x) * 0.05) * timesliceDelta * this.config.notesPerSec // FIXME lerp 0.05
+            if (this.runner.alive) this.runner.x += (1 + (this.at - this.runner.x) * 0.05) * timesliceDelta * this.config.notesPerSec // FIXME lerp 0.05
             this.runner.y += (this.runner.vy + timesliceDelta * this.config.notesPerSec) * timesliceDelta * this.config.notesPerSec
             this.runner.vy += timesliceDelta * this.config.notesPerSec * 2
             let contactedTerrain = relevantTerrain.filter(e => this.runner.x < e.x + e.width && this.runner.x + 1 > e.x && this.runner.y < e.y + e.height && this.runner.y + 1 > e.y)
             for (let e of contactedTerrain) {
-                if (e.type !== 'floor') continue
+                if (e.type !== 'floor') {
+                    if (e.type === 'black') {
+                        // give black keys a smaller hitbox
+                        if (!(this.runner.x < e.x + e.width * 0.7 && this.runner.x + 1 > e.x + e.width * 0.3 && this.runner.y + 1 > e.y + e.height * 0.5)) continue
+                    }
+                    if (!this.triggeredKeys.has(e.e)) {
+                        this.triggeredKeys.set(e.e, this.time)
+                    }
+
+                    if (this.runner.alive && e.type === 'black') {
+                        this.runner.alive = false
+                        this.scheduleEffect('black')
+                    }
+                    continue
+                }
                 let pushLeft = this.runner.x + 1 - e.x
                 let pushRight = e.x + e.width - this.runner.x
                 let pushUp = this.runner.y + 1 - e.y
@@ -469,6 +532,10 @@ const Game = class {
                     }
                 }
             }
+            if (this.runner.alive && (this.runner.y > 12 || relevantTerrain.some(e => e.type === 'white' && e.x < this.runner.x - 1.25 && !this.triggeredKeys.has(e.e)))) {
+                this.runner.alive = false
+                this.scheduleEffect('silence')
+            }
         }
     }
 
@@ -491,13 +558,18 @@ const Game = class {
 
     render(delta) {
         this.time += delta
+        this.homeMenuTransition = Math.min(Math.max(this.homeMenuTransition + delta * (this.homeMenu ? 1 : -1), 0), 1)
 
         if (this.input.get('Escape') < 0) {
-            this.configMenu = !this.configMenu
+            if (this.configMenu) this.configMenu = false
+            else if (this.creditsMenu) this.creditsMenu = false
+            else this.configMenu = true
             this.scheduleEffect('generic')
         }
 
-        this.synth.setVolume(this.config.volume)
+        let silenceTime = this.time - this.silenceEffectStartsAt
+        let silenceFactor = silenceTime >= 3 ? 1 : silenceTime < 0.5 ? 1 - (silenceTime / 0.5) : (silenceTime - 0.5) / 2.5
+        this.synth.setVolume(this.config.volume * silenceFactor)
         this.update(delta)
         this.pull()
         this.playMusic()
