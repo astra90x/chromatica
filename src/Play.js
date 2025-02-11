@@ -1,4 +1,5 @@
 import { Random, Synth, MusicGen, ClickGen, PathGen, TerrainGen } from './core.js'
+import { addScore } from './leaderboard.js'
 
 let createPalette = palette => {
     let values = Object.values(palette)
@@ -96,7 +97,7 @@ const Game = class {
         this.terrain = []
         this.at = 0
 
-        this.runner = home ? null : { x: 0, y: 0, vx: 1, vy: 0, alive: true, traveled: 0 }
+        this.runner = home ? null : { x: 0, y: 0, vx: 1, vy: 0, alive: true, traveled: 0, logged: false }
 
         if (this.config.tutorial && !home) this.pullTutorial()
         this.pull()
@@ -313,6 +314,10 @@ const Game = class {
         this.cx.fillText(600, 180, { width: 400, height: 48 }, 'Game Over')
 
         this.cx.fillText(300, 260, { width: 1000, height: 52 }, `Score: ${Math.floor(this.runner.traveled)} notes played`)
+        if (!this.runner.logged) {
+            this.runner.logged = true
+            addScore({ score: Math.floor(this.runner.traveled) })
+        }
 
         this.deathMenuSelected = ((
             this.deathMenuSelected - (this.input.get('ArrowUp') < 0) + (this.input.get('ArrowDown') < 0)
@@ -610,7 +615,10 @@ const Game = class {
         if (this.input.get('Escape') < 0) {
             if (this.configMenu) this.configMenu = false
             else if (this.creditsMenu) this.creditsMenu = false
-            else this.configMenu = true
+            else if (this.runner && !this.runner.alive) {
+                this.endGame()
+                this.homeMenu = true
+            }
             this.scheduleEffect('generic')
         }
 
