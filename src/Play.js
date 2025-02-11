@@ -149,7 +149,7 @@ const Game = class {
             { x: 20, y: 0, width: 1, height: 1, type: 'white' },
 
             { x: 8, y: -2, width: 1, height: 1, type: 'tutorialJump' },
-            { x: 14, y: -4, width: 1, height: 1, type: 'tutorialBlack' },
+            { x: 14, y: -5, width: 1, height: 1, type: 'tutorialBlack' },
             { x: 20, y: -2, width: 1, height: 1, type: 'tutorialWhite' },
         ]
         let path = [
@@ -203,20 +203,30 @@ const Game = class {
         if (keyColor != null) {
             let pressedFor = this.time - (this.triggeredKeys.get(e) ?? this.time)
             let depth = Math.min(pressedFor, 0.1) / 0.1 * (height - 7)
-            this.cx.fillStyle(keyColor)
+            this.cx.fillStyle(type !== 'white' ? keyColor : palette.blend(keyColor, 0x777777, 0.4))
             this.cx.fillRoundedRect(x, y + depth, width, height - depth, { tl: 6, tr: 6, bl: 0, br: 0 })
+            this.cx.fillStyle(type !== 'white' ? palette.blend(keyColor, 0x777777, 0.2) : keyColor)
+            this.cx.fillRoundedRect(x + 2, y + depth + 2, width - 4, height - depth - 2, { tl: 4, tr: 4, bl: 0, br: 0 })
+            this.cx.fillStyle(0xcccccc, 0.4)
+            this.cx.fillRoundedRect(x + width - 5 - 3, y + depth + 5, 3, 9, { tl: 1.5, tr: 1.5, bl: 0, br: 0 })
             return
         }
 
         if (type === 'runner') {
-            this.cx.fillStyle(0x999999)
+            this.cx.fillStyle(palette.get(0))
             this.cx.fillRoundedRect(x, y, width, height, 6)
+            this.cx.fillStyle(palette.blend(0, 'white', 0.2))
+            this.cx.fillRect(x + 4, y + 4, width - 8, height - 8, 2)
             return
         }
 
         if (type === 'floor') {
-            this.cx.fillStyle(0x333333)
+            this.cx.fillStyle(0x777777)
             this.cx.fillRoundedRect(x, y, width, height, 6)
+            this.cx.fillStyle(0x555555)
+            this.cx.fillRoundedRect(x + 4, y + 4, width - 8, height - 8, 2)
+            this.cx.fillStyle(0x444444)
+            this.cx.fillRect(x + 6, y + 6, width - 12, height - 12)
             return
         }
 
@@ -613,11 +623,15 @@ const Game = class {
         this.deathMenuTransition = Math.min(Math.max(this.deathMenuTransition + (this.runner && !this.runner.alive ? delta : -1), 0), 1)
 
         if (this.input.get('Escape') < 0) {
-            if (this.configMenu) this.configMenu = false
-            else if (this.creditsMenu) this.creditsMenu = false
-            else if (this.runner && !this.runner.alive) {
+            if (this.configMenu) {
+                this.configMenu = false
+            } else if (this.creditsMenu) {
+                this.creditsMenu = false
+            } else if (this.runner && !this.runner.alive) {
                 this.endGame()
                 this.homeMenu = true
+            } else {
+                this.configMenu = true
             }
             this.scheduleEffect('generic')
         }
